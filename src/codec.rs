@@ -2,6 +2,10 @@
 use crate::krpc; // Generated from the protobuf file
 
 use crate::error;
+use crate::krpc::DictionaryEntry;
+use crate::krpc::Event;
+use crate::krpc::ProcedureCall;
+use crate::krpc::Services;
 
 use protobuf;
 use protobuf::Message;
@@ -81,11 +85,43 @@ impl RPCExtractable for i32 {
     }
 }
 
+impl RPCExtractable for u8 {
+    fn extract_value(
+        input: &mut protobuf::CodedInputStream,
+    ) -> Result<Self, protobuf::ProtobufError> {
+        input.read_raw_byte()
+    }
+}
+
 impl RPCExtractable for String {
     fn extract_value(
         input: &mut protobuf::CodedInputStream,
     ) -> Result<Self, protobuf::ProtobufError> {
         input.read_string()
+    }
+}
+
+impl RPCExtractable for Services {
+    fn extract_value(
+        input: &mut protobuf::CodedInputStream,
+    ) -> Result<Self, protobuf::ProtobufError> {
+        Self::parse_from_reader(input)
+    }
+}
+
+impl RPCExtractable for Event {
+    fn extract_value(
+        input: &mut protobuf::CodedInputStream,
+    ) -> Result<Self, protobuf::ProtobufError> {
+        Self::parse_from_reader(input)
+    }
+}
+
+impl RPCExtractable for ProcedureCall {
+    fn extract_value(
+        input: &mut protobuf::CodedInputStream,
+    ) -> Result<Self, protobuf::ProtobufError> {
+        Self::parse_from_reader(input)
     }
 }
 
@@ -326,6 +362,33 @@ impl RPCEncodable for String {
     }
 }
 
+impl RPCEncodable for Services {
+    fn encode(
+        &self,
+        output: &mut protobuf::CodedOutputStream,
+    ) -> Result<(), protobuf::ProtobufError> {
+        self.write_to_writer(output)
+    }
+}
+
+impl RPCEncodable for Event {
+    fn encode(
+        &self,
+        output: &mut protobuf::CodedOutputStream,
+    ) -> Result<(), protobuf::ProtobufError> {
+        self.write_to_writer(output)
+    }
+}
+
+impl RPCEncodable for ProcedureCall {
+    fn encode(
+        &self,
+        output: &mut protobuf::CodedOutputStream,
+    ) -> Result<(), protobuf::ProtobufError> {
+        self.write_to_writer(output)
+    }
+}
+
 impl<T> RPCEncodable for Vec<T>
 where
     T: RPCEncodable,
@@ -342,6 +405,52 @@ where
         let mut l = krpc::List::new();
         l.set_items(v);
         l.write_to(output)?;
+
+        Ok(())
+    }
+}
+
+impl<T> RPCEncodable for HashSet<T>
+where
+    T: RPCEncodable + Hash + Eq,
+{
+    fn encode(
+        &self,
+        output: &mut protobuf::CodedOutputStream,
+    ) -> Result<(), protobuf::ProtobufError> {
+        let mut v = protobuf::RepeatedField::<Vec<u8>>::new();
+        for e in self {
+            v.push(e.encode_to_bytes()?);
+        }
+
+        let mut l = krpc::List::new();
+        l.set_items(v);
+        l.write_to(output)?;
+
+        Ok(())
+    }
+}
+
+impl<T, U> RPCEncodable for HashMap<T, U>
+where
+    T: RPCEncodable + Hash + Eq,
+    U: RPCEncodable,
+{
+    fn encode(
+        &self,
+        output: &mut protobuf::CodedOutputStream,
+    ) -> Result<(), protobuf::ProtobufError> {
+        let mut v = protobuf::RepeatedField::<DictionaryEntry>::new();
+        for e in self {
+            let mut entry = DictionaryEntry::new();
+            entry.set_key(e.0.encode_to_bytes()?);
+            entry.set_value(e.1.encode_to_bytes()?);
+            v.push(entry);
+        }
+
+        let mut m = krpc::Dictionary::new();
+        m.set_entries(v);
+        m.write_to(output)?;
 
         Ok(())
     }
