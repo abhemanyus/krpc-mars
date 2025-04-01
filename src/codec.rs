@@ -412,7 +412,7 @@ where
 
 impl<T> RPCEncodable for HashSet<T>
 where
-    T: RPCEncodable + Hash + Eq,
+    T: RPCEncodable,
 {
     fn encode(
         &self,
@@ -433,7 +433,7 @@ where
 
 impl<T, U> RPCEncodable for HashMap<T, U>
 where
-    T: RPCEncodable + Hash + Eq,
+    T: RPCEncodable,
     U: RPCEncodable,
 {
     fn encode(
