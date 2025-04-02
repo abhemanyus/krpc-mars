@@ -81,6 +81,11 @@ where
     pub(crate) fn get_call(&self) -> &krpc::ProcedureCall {
         &self.proc_call
     }
+
+    pub fn mk_call(&self, client: &mut RPCClient) -> Result<T, error::RPCError> {
+        let (result,) = crate::batch_call!(client, (self))?;
+        result
+    }
 }
 
 impl RPCClient {
