@@ -15,6 +15,7 @@ pub mod error;
 
 // Re-exported for the generated code
 pub mod codec;
+#[allow(warnings, clippy::all)]
 pub mod krpc;
 pub use protobuf;
 
