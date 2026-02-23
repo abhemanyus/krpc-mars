@@ -34,4 +34,7 @@ pub enum RPCError {
     /// Some protobuf error on the request/response level
     #[error(transparent)]
     ProtobufErr(#[from] protobuf::ProtobufError),
+
+    #[error("index out of bounds")]
+    InvalidResponseIndex,
 }

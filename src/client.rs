@@ -1,4 +1,7 @@
+// src/rpc_client.rs
+
 //! Client for sending requests to the KRPC mod.
+
 use crate::codec;
 use crate::error;
 use crate::krpc;
@@ -7,14 +10,12 @@ use crate::krpc::ConnectionResponse_Status;
 use crate::prpc;
 use crate::stream::StreamHandle;
 
-use prost::{decode_length_delimiter, Message};
+use prost::Message;
 use protobuf::ProtobufEnum;
-use std::net::ToSocketAddrs;
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
-
 use std::marker::PhantomData;
+use std::net::ToSocketAddrs;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 /// A client to the RPC server.
 #[derive(Debug)]
@@ -23,10 +24,7 @@ pub struct RPCClient {
     pub(crate) client_id: Vec<u8>,
 }
 
-/// Represents a request that can be submitted to the RPCServer. This object is clonable so that
-/// you can perform the same request multiple times. For one-off requests, use
-/// [`batch_call!`](crate::batch_call!), [`batch_call_unwrap!`](crate::batch_call_unwrap) or
-/// [`RPCClient::mk_call`] which provide a nicer API.
+/// Represents a request that can be submitted to the RPCServer.
 #[derive(Clone, Default)]
 pub struct RPCRequest {
     calls: protobuf::RepeatedField<krpc::ProcedureCall>,
@@ -34,7 +32,7 @@ pub struct RPCRequest {
 
 impl RPCRequest {
     pub fn add_call<T: codec::RPCExtractable>(&mut self, handle: &CallHandle<T>) {
-        self.calls.push(handle.get_call().clone())
+        self.calls.push(handle.proc_call.clone())
     }
 
     fn build(self) -> krpc::Request {
@@ -50,8 +48,7 @@ pub struct RPCResponse {
     results: prost::alloc::vec::Vec<prpc::ProcedureResult>,
 }
 
-/// Represents a procedure call. The type parameter is the type of the value to be extracted from
-/// the server's response.
+/// Represents a procedure call.
 #[derive(Clone)]
 pub struct CallHandle<T> {
     proc_call: krpc::ProcedureCall,
@@ -60,42 +57,43 @@ pub struct CallHandle<T> {
 
 impl<T> CallHandle<T>
 where
-    T: codec::RPCExtractable,
+    T: Message + std::default::Default,
 {
     #[doc(hidden)]
-    /// Creates a new CallHandle. The function is public so that the generated code from
-    /// krpc-mars-terraformer can use it but it is hidden from user docs.
     pub fn new(proc_call: krpc::ProcedureCall) -> Self {
-        CallHandle {
+        Self {
             proc_call,
             _phantom: PhantomData,
         }
     }
 
-    /// Creates a streamed version of this call.
     pub fn to_stream(&self) -> CallHandle<StreamHandle<T>> {
-        crate::stream::mk_stream(self)
+        todo!();
+        // crate::stream::mk_stream(self)
     }
 
     /// Extract the i-th result from a response.
     pub fn get_result(&self, resp: &RPCResponse, idx: usize) -> Result<T, error::RPCError> {
-        // codec::extract_result(&resp.results[idx])
-        todo!();
+        let result = resp
+            .results
+            .get(idx)
+            .ok_or(error::RPCError::InvalidResponseIndex)?;
+        Ok(T::decode(result.value.as_slice()).unwrap())
     }
 
     pub(crate) fn get_call(&self) -> &krpc::ProcedureCall {
         &self.proc_call
     }
 
-    pub fn mk_call(&self, client: &mut RPCClient) -> Result<T, error::RPCError> {
-        // let (result,) = crate::batch_call!(client, (self))?;
-        // result
+    /// Executes this call asynchronously.
+    pub async fn mk_call(&self, client: &mut RPCClient) -> Result<T, error::RPCError> {
         todo!();
+        // client.mk_call(self).await
     }
 }
 
 impl RPCClient {
-    /// Connects to the KRPC server. The client will show up in the KRPC UI with the given client name.
+    /// Connects to the KRPC server.
     pub async fn connect<A: ToSocketAddrs + tokio::net::ToSocketAddrs>(
         client_name: &str,
         addr: A,
@@ -110,13 +108,13 @@ impl RPCClient {
         sock.write_all(&data).await?;
 
         let mut buf = Vec::with_capacity(128);
-        let _bytes = sock.read_buf(&mut buf).await?;
+        sock.read_buf(&mut buf).await?;
 
-        let response =
-            prpc::ConnectionResponse::decode_length_delimited(buf.as_slice()).expect("failed");
+        let response = prpc::ConnectionResponse::decode_length_delimited(buf.as_slice())
+            .expect("failed to decode connection response");
 
         match response.status() {
-            prpc::connection_response::Status::Ok => Ok(RPCClient {
+            prpc::connection_response::Status::Ok => Ok(Self {
                 sock,
                 client_id: response.client_identifier,
             }),
@@ -137,26 +135,29 @@ impl RPCClient {
         result
     }
 
-    /// Sends an [`RPCRequest`] to the server. A single RPCRequest may contain multiple RPC calls.
-    /// It is recommended to use the [`batch_call!`](crate::batch_call) or
-    /// [`batch_call_unwrap!`](crate::batch_call_unwrap) for one-off requests.
+    /// Sends an [`RPCRequest`] to the server.
     pub async fn submit_request(
         &mut self,
         request: RPCRequest,
     ) -> Result<RPCResponse, error::RPCError> {
         use protobuf::Message;
+
         let raw_request = request.build();
         let data = raw_request.write_length_delimited_to_bytes()?;
         self.sock.write_all(&data).await?;
 
         let mut buf = Vec::with_capacity(128);
-        let _bytes = self.sock.read_buf(&mut buf).await?;
-        let resp = prpc::Response::decode_length_delimited(buf.as_slice()).expect("failed");
+        self.sock.read_buf(&mut buf).await?;
+
+        let resp = prpc::Response::decode_length_delimited(buf.as_slice())
+            .expect("failed to decode response");
+
         if let Some(err) = resp.error {
             Err(error::RPCError::KRPCRequestErr(err))
         } else {
-            let results = resp.results;
-            Ok(RPCResponse { results })
+            Ok(RPCResponse {
+                results: resp.results,
+            })
         }
     }
 }
