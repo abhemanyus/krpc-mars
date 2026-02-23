@@ -1,4 +1,4 @@
-use crate::krpc;
+use crate::{krpc, prpc};
 
 /// Errors that can occur while trying to connect to the KRPC server.
 #[derive(Debug, thiserror::Error)]
@@ -28,9 +28,9 @@ pub enum RPCError {
     /// An error raised by the kRPC mod
     #[error(
         "The RPC request failed: service={} procedure={} description={}",
-        .0.get_service(), .0.get_name(), .0.get_description())
+        .0.service, .0.name, .0.description)
     ]
-    KRPCRequestErr(krpc::Error),
+    KRPCRequestErr(prpc::Error),
     /// Some protobuf error on the request/response level
     #[error(transparent)]
     ProtobufErr(#[from] protobuf::ProtobufError),

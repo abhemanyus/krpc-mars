@@ -531,9 +531,10 @@ where
     T: RPCExtractable,
 {
     if proc_result.has_error() {
-        Err(error::RPCError::KRPCRequestErr(
-            proc_result.get_error().clone(),
-        ))
+        todo!();
+        // Err(error::RPCError::KRPCRequestErr(
+        //     proc_result.get_error().clone(),
+        // ))
     } else {
         let mut input = protobuf::CodedInputStream::from_bytes(proc_result.get_value());
         let res = RPCExtractable::extract_value(&mut input)?;
