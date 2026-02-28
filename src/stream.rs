@@ -5,8 +5,11 @@ use crate::krpc;
 
 use crate::client::CallHandle;
 
-use std::net::TcpStream;
-use std::net::ToSocketAddrs;
+use std::io::Cursor;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
+use tokio::net::ToSocketAddrs;
 
 use std::marker::PhantomData;
 
@@ -84,19 +87,29 @@ pub fn mk_stream<T: codec::RPCExtractable>(call: &CallHandle<T>) -> CallHandle<S
 
 impl StreamClient {
     /// Connect to the stream server associated with the given client.
-    pub fn connect<A: ToSocketAddrs>(
+    pub async fn connect<A: ToSocketAddrs>(
         client: &super::RPCClient,
         addr: A,
     ) -> Result<Self, error::ConnectionError> {
-        let mut sock = TcpStream::connect(addr)?;
+        let mut sock = TcpStream::connect(addr).await?;
 
         let mut conn_req = krpc::ConnectionRequest::new();
         conn_req.set_field_type(krpc::ConnectionRequest_Type::STREAM);
         conn_req.set_client_identifier(client.client_id.clone());
 
-        conn_req.write_length_delimited_to_writer(&mut sock)?;
+        let bytes = conn_req.write_length_delimited_to_bytes()?;
+        sock.write_all(&bytes).await?;
 
-        let mut response = codec::read_message::<krpc::ConnectionResponse>(&mut sock)?;
+        let mut buf = Vec::with_capacity(1024);
+
+        let mut response = loop {
+            sock.read_buf(&mut buf).await?;
+            let res = codec::read_message::<krpc::ConnectionResponse>(&mut Cursor::new(&buf));
+            match res {
+                Ok(res) => break res,
+                Err(_) => {}
+            }
+        };
 
         match response.status {
             krpc::ConnectionResponse_Status::OK => Ok(Self { sock }),
@@ -107,8 +120,17 @@ impl StreamClient {
         }
     }
 
-    pub fn recv_update(&mut self) -> Result<StreamUpdate, error::RPCError> {
-        let updates = codec::read_message::<krpc::StreamUpdate>(&mut self.sock)?;
+    pub async fn recv_update(&mut self) -> Result<StreamUpdate, error::RPCError> {
+        let mut buf = Vec::with_capacity(1024);
+
+        let updates = loop {
+            self.sock.read_buf(&mut buf).await?;
+            let res = codec::read_message::<krpc::StreamUpdate>(&mut Cursor::new(&buf));
+            match res {
+                Ok(res) => break res,
+                Err(_) => {}
+            }
+        };
 
         let mut map = HashMap::new();
         for mut result in updates.results.into_iter() {
